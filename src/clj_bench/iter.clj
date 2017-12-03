@@ -16,35 +16,30 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Single reduce, primitve:
-(defn sum-reduce
-  [xs]
-  (reduce + 0 xs))
-#_(sum-reduce xs-large)
 
-(defn sum-loop
-  [xs]
-  (loop [xs (seq xs)
-         sum (Long. 0)] ;; Avoid
-    (if xs
-      (recur (next xs) (+ sum (first xs)))
-      sum)))
-#_(sum-loop xs-large)
+(defn sum-reduce [xs] (reduce + 0 xs))
 
 (defn sum-loop-prim
   [xs]
-  (loop [xs (seq xs)
-         sum 0]
+  (loop [xs (seq xs), sum 0]
     (if xs
       (recur (next xs) (+ sum ^long (first xs)))
       sum)))
 
 (defn sum-loop-iter
   [xs]
-  (loop-it [x xs
-            :let [sum 0]]
+  (loop-it [x xs, :let [sum 0]]
     (recur (+ sum ^long x))
     sum))
-#_ (sum-loop-iter xs-large)
+
+(defn sum-loop
+  [xs]
+  (loop [xs (seq xs)
+         sum (Long. 0)] ;; Avoid primitive math.
+    (if xs
+      (recur (next xs) (+ sum (first xs)))
+      sum)))
+#_(sum-loop xs-large)
 
 (comment
   (quick-bench (sum-reduce xs-large)) ;; 177ms
