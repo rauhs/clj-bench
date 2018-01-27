@@ -158,7 +158,7 @@
             (returns "Object")
             (add-param "ISeq" args))]
   (statement m "int $L = getRequiredArity()" mra)
-  (doseq [i (range 0 2)] ;; 22 for applyTo
+  (doseq [i (range 0 21)] ;; 21 for applyTo
     (when (pos? i)
       (-> m
           (statement "Object $L = $L.first()" (arg i) args)
@@ -172,11 +172,25 @@
   (statement m "return throwArity(-1)")
   (code! m))
 
-
+;; Make apply also see AFn, not just RestFn for realistic workload
 (comment
-  (let [xs (vec (range 4))
-        f (fn ([_ _ _ & xs]) ([_ _ _]))]
-    (crit/quick-bench (apply f xs))))
+  (let [xs [1 2 3 4 5 6 7] ;(vec (range 4))
+        rfn (fn
+              ([_ _, _ _, _ _ & xs]))
+        afn (fn ([])
+              ([x] x)
+              ([x y] y)
+              ([x y z] z)
+              ([x y z, a] a)
+              ([x y z, a b] b)
+              ([x y z, a b c] c)
+              ([x y z, a b c, d] d))]
+    ;(prn "RestFn:")
+    ;(crit/quick-bench (apply rfn xs))
+    (prn "AFn:")
+    (crit/quick-bench (apply afn xs))
+    (prn "RestFn:")
+    (crit/quick-bench (apply rfn xs))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
