@@ -1,11 +1,15 @@
 (ns clj-bench.loop-it
-  (:import (java.util Iterator)))
+  (:import
+    (java.util Iterator)))
 
 (defn ensure-iter
   "Returns an iterator for x if it's not already one."
   ^Iterator [x]
   ;; CLJS: Check for nil -> niliter otherwise check if obj has: .hasNext & .next
   (if (instance? Iterator x) x (clojure.lang.RT/iter x)))
+
+#_(iterator-seq (ensure-iter "foo"))
+
 
 (defn multi-iter
   "Returns an iterator that

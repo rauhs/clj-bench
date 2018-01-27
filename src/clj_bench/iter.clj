@@ -3,10 +3,14 @@
     [clj-bench.loop-it :refer [loop-it multi-iter multi-iter-lazy]]
     [clj-bench.vec-reduce :refer [sv-loop]]
     [criterium.core :as crit :refer [quick-bench bench]]
-    [proteus :refer :all])
-  (:import (java.util Iterator)
+    [proteus :refer :all]
+    [clojure.walk :as walk]
+    [clojure.core.reducers :as r]
+    [clojure.string :as str]
+    [clojure.java.io :as io])
+  (:import (java.util Iterator ArrayList Collection)
            (java.util.concurrent.atomic AtomicInteger)
-           (clojure.lang IndexedSeq)))
+           (clojure.lang IndexedSeq ArraySeq AFn)))
 
 (set! *warn-on-reflection* true)
 ;(set! *unchecked-math* :warn-on-boxed)
@@ -14,9 +18,24 @@
 (def xs (vec (range 1e6)))
 (def xs-large (vec (range 1e7)))
 
+(comment
+  ;; check thread safety:
+  (let [n (rand-int 10000)
+        xs (seq (vec (range n)))
+        arrlist (ArrayList. ^Collection xs)]
+    (future
+      (dotimes [_ 10000]
+        (.set arrlist (rand-int n) (rand-int n))
+        (assoc xs (rand-int n) (rand-int n)))
+      (prn "DONE"))
+    (Thread/sleep 10)
+    [(/ (* n (dec n)) 2)
+     (loop-it [^long x xs :let [sum 0]] (recur (+ sum x)) sum)
+     (loop-it [^long x arrlist :let [sum 0]] (recur (+ sum x)) sum)]))
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Single reduce, primitve:
-
 (defn sum-reduce [xs] (reduce + 0 xs))
 
 (defn sum-loop-prim
@@ -104,11 +123,11 @@
 (defn odd-even-mutable [xs]
   (let-mutable [odd 0
                 even 0]
-               (doseq [x xs]
-                 (if (odd? x)
-                   (set! odd (inc odd))
-                   (set! even (inc even))))
-               [odd even]))
+    (doseq [x xs]
+      (if (odd? x)
+        (set! odd (inc odd))
+        (set! even (inc even))))
+    [odd even]))
 (defn odd-even-doseq-atomic [xs]
   (let [odd (AtomicInteger. 0)
         even (AtomicInteger. 0)]
@@ -147,15 +166,12 @@
     [odd even]))
 #_(odd-even-chunked-loop xs)
 
-(comment
-  (quick-bench (odd-even-reduce xs)) ;; 21.55ms
-  (quick-bench (odd-even-reduce-prim-array xs)) ;; 9.78ms
-  (quick-bench (odd-even-loop xs)) ;; 13.2ms
-  (quick-bench (odd-even-iter xs)) ;; 6.65ms
-  (quick-bench (odd-even-chunked-loop xs)) ;; 5.9ms
-  (quick-bench (odd-even-doseq-atomic xs)) ;; 10.2ms
-  (quick-bench (odd-even-mutable xs)) ;; 6.44ms
-  )
+(defn tally-by [pred xs]
+  (let [total (count xs)
+        cnt (r/fold + (r/map (fn [_] 1) (r/filter pred xs)))]
+    [cnt (- total cnt)]))
+#_(tally-by odd? xs)
+
 (comment
   ;; 10 million:
   (quick-bench (odd-even-reduce xs-large)) ;; 222ms
@@ -168,11 +184,22 @@
   (quick-bench (odd-even-doseq-atomic xs-large)) ;; 103ms
   (quick-bench (odd-even-doseq-array xs-large)) ;; 73ms
   (quick-bench (odd-even-mutable xs-large)) ;; 70ms
+  (quick-bench (tally-by odd? xs-large))  ;; 56ms
   )
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; take-nth
+;; mapv - transient creation.
 
+(defn mapv-inc
+  [xs]
+  (mapv inc xs))
+
+(comment
+  (let [xs-small (vec (range 10))]
+    (quick-bench (mapv-inc xs-small))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; take-nth
 (defn take-nth-vec
   "Eager! outputs a vector."
   [n xs]
@@ -183,8 +210,6 @@
         (recur n-1 (conj! out x))
         (recur (unchecked-dec i) out))
       (persistent! out))))
-
-#_(= (take-nth-vec 2 xs) (take-nth 2 xs))
 (comment
   (quick-bench (into [] (take-nth 5) xs-large)) ;; 254ms
   (quick-bench (doall (take-nth 5 xs-large))) ;; 262ms
@@ -201,12 +226,12 @@
 (comment
   (quick-bench (doall (interleave xs xs))) ;; 64ms
   (quick-bench (interleave-fast xs xs)) ;; 26ms
+  (quick-bench (interleave-fast-nested xs xs)) ;; 26ms
   )
 ;; Also: take, take-while
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Partition-2
-
 (defn partition-2-reduce
   [pred xs]
   (mapv persistent!
@@ -316,15 +341,25 @@
      (recur (conj! out (apply f xs)))
      (persistent! out)) ))
 
-
 #_(apply mapv-fast #(-> %&) (repeat nil))
 (comment (quick-bench (mapv vector xs xs xs xs)) ;; 1.28s
          (quick-bench (mapv-fast vector xs xs xs xs)) ;; 147ms
+         (quick-bench (mapv2 vector xs xs xs xs)) ;;
+         )
+
+(comment (quick-bench (mapv vector xs xs xs)) ;; 110ms
+         (quick-bench (mapv-fast vector xs xs xs)) ;; 23ms
+         )
+
+(comment (quick-bench (mapv vector xs xs)) ;; 96ms
+         (quick-bench (mapv-fast vector xs xs)) ;; 20ms
+         (quick-bench (mapv-new vector xs xs)) ;; 20ms
          )
 
 (comment (quick-bench (mapv inc xs)) ;; 22ms
          (quick-bench (mapv-fast inc xs)) ;; 19ms
          )
+
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -357,8 +392,4 @@
   (quick-bench (mapcatv #(vector % % % %) xs)) ;; 89ms
   (quick-bench (mapcatv-2 #(vector % % % %) xs))) ;; 69ms
 
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Reduce single value
 

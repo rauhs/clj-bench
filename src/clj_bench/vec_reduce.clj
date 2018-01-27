@@ -18,7 +18,7 @@
 
 (defmacro sv-loop
   "Single vector loop using chunkes similar to doseq.
-   Note: Inflexible and not much faster than using iterators. So don't use this..."
+   Note: Inflexible and not much faster than using iterators. So don't use this."
   [[bind vec let-kw loop-bind] body finish]
   {:pre [(= let-kw :let) (vector? loop-bind)]}
   (assert (every? symbol? (take-nth 2 loop-bind)))
@@ -39,9 +39,11 @@
            (let [~bind (.nth ~chunk- ~i-)]
              ~(prefix-recur body seq- chunk- count- `(unchecked-inc ~i-)))
            (if (some? ~seq-)
-             (let [c# (chunk-first ~seq-)]
-               (recur (chunk-next ~seq-) c# (int (count c#)) 0
-                      ;; TODO: Support destructing here?
-                      ~@(take-nth 2 loop-bind)))
+             (if (chunked-seq? ~seq-)
+               (let [c# (chunk-first ~seq-)]
+                 (recur (chunk-next ~seq-) c# (int (count c#)) 0
+                        ;; TODO: Support destructing here?
+                        ~@(take-nth 2 loop-bind)))
+               (let [~bind (first ~seq-)]
+                 ~(prefix-recur body `(next ~seq-) nil 0 0)))
              ~finish))))))
-
