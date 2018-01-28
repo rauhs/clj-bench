@@ -1,7 +1,8 @@
 (ns clj-bench.apply
   (:require
     [criterium.core :as crit]
-    [clojure.reflect :as reflect])
+    [clojure.reflect :as reflect]
+    [clojure.set :as set])
   (:import
     (com.squareup.javapoet MethodSpec TypeName ArrayTypeName MethodSpec$Builder
                            ParameterSpec ClassName JavaFile TypeSpec CodeBlock)
@@ -104,15 +105,20 @@
 #_(code! (do-invoke 0))  ;; 0..20
 #_(code! (do-invoke 20))  ;; 0..20
 
-(defmacro >>
+(defmacro IF
   [x s args & body]
   `(-> ~x
        (.beginControlFlow ~s (into-array Object ~args))
        ~@body
        (.endControlFlow)))
 
-(defn ret1 [sym]
-  (str "Util.ret1(" sym ","sym " = null)"))
+(defn ret1
+  ([sym]
+   (if (symbol? sym)
+     (str sym)
+     (str "Util.ret1(" sym ", " sym " = null)")))
+  ([expr sym]
+   (str "Util.ret1(" expr ", " sym " = null)") ))
 
 ;; TODO: RT.seqToArray(
 (defn do-fn-invoke!
@@ -146,57 +152,77 @@
 
 (defn arg [n] (str "a" n))
 
-;; NOTE: Can'tt change existings .applyTo arities in IFn (people reify it)
-;; Add a new interface IApplyMult => .applyToMult with arities:
-;; ([xs], ([arg0 xs]), ([arg0 arg1 xs]) ...)
-(def atf-iname "IMultiApply")
-(def atf-fname "multiApplyTo")
-
-;; WORKING CODE FOR RestFn:
-(let [mra "mra"
-      args "args"
-      m (-> (method "applyTo" #{:public})
-            (returns "Object")
-            (add-param "ISeq" args))]
-  (statement m "int $L = getRequiredArity()" mra)
-  (doseq [i (range 0 21)] ;; 21 for applyTo
-    (when (pos? i)
+;; AFn: Gen applyToHelper:
+(let [args "args"
+      ifn "ifn"
+      n 4 ;; Number of given static args 0..4
+      m (-> (method (str (if (zero? n) "applyTo" "multiApplyTo") "Helper")
+                    #{:public :static})
+            (returns "Object"))]
+  (add-param m "IFn" ifn)
+  (dotimes [i n]
+    (add-param m "Object" (arg (inc i))))
+  (add-param m "ISeq" args)
+  (doseq [i (range n 21)] ;; 21 for applyTo
+    (when (< n i)
       (-> m
           (statement "Object $L = $L.first()" (arg i) args)
           (statement "$L = $L.next()" args args)))
-    (>> m "if($L == null)" [args]
+    (IF m "if($L == null)" [args]
+        (add-code "return $L" (invoke! (str ifn ".invoke") 8 (map arg (range 1 (inc i)))))))
+  (add-code m "return $L" (invoke! (str ifn ".invoke") 8
+                                   (conj (mapv arg (range 1 21)) args) true))
+  (code! m))
+
+(defn args-list*
+  [ar args]
+  (if (empty? ar)
+    (ret1 args)
+    (reduce
+      (fn [s arg]
+        (str "RT.cons(" (ret1 arg) ", " s ")"))
+      (str "RT.cons(" (ret1 (last ar)) ", " (ret1 args) ")")
+      (reverse (butlast ar)))))
+
+;; RestFn: Code for multiApplyTo and applyTo (n==0)
+(let [mra "mra"
+      n 1 ;; number of given args, eg. 2: [Object a1, Object a2, ISeq args] [0..4]
+      args "args"
+      m (-> (method (if (zero? n) "applyTo" "multiApplyTo") #{:public})
+            (returns "Object"))]
+  (dotimes [i n]
+    (add-param m "Object" (arg (inc i))))
+  (add-param m "ISeq" args)
+  (statement m "int $L = getRequiredArity()" mra)
+  ;; We still need to check mra < i or the code will walk the ENTIRE seq and then call
+  ;; invoke() on it. (this would fail: (apply (fn [& x] x) 3 (range 22)) ) if not doing it.
+  (doseq [i (range n)]
+    (IF m "if($L == $L)" [mra i]
+        (add-code
+          "return $L"
+          (invoke! "doInvoke" 7 (conj (mapv arg (range 1 (inc i)))
+                                      (symbol (args-list* (mapv arg (range (inc i) (inc n)))
+                                                          args)))))))
+  (doseq [i (range n (inc n))] ;; 21
+    (when (< n i)
+      (-> m
+          (statement "Object $L = $L.first()" (arg i) args)
+          (statement "$L = $L.next()" args args)))
+    (IF m "if($L == null)" [args]
         (add-code "return $L" (invoke! "invoke" 6 (map arg (range 1 (inc i))))))
-    (>> m "if($L == $L)" [mra i]
-        ;; (fn [x & xs]) +
+    (IF m "if($L == $L)" [mra i]
         (add-code "return $L" (invoke! "doInvoke" 7 (conj (mapv arg (range 1 (inc i))) args)))))
   (statement m "return throwArity(-1)")
   (code! m))
 
-;; Code for AFn applyToHelper:
-(let [args "args"
-      ifn "ifn"
-      m (-> (method "applyToHelper" #{:public :static})
-            (returns "Object")
-            (add-param "IFn" ifn)
-            (add-param "ISeq" args))]
-  (doseq [i (range 0 21)] ;; 21 for applyTo
-    (when (pos? i)
-      (-> m
-          (statement "Object $L = $L.first()" (arg i) args)
-          (statement "$L = $L.next()" args args)))
-    (>> m "if($L == null)" [args]
-        (add-code "return $L" (invoke! (str ifn ".invoke") 6 (map arg (range 1 (inc i)))))))
-  (add-code m "return $L" (invoke! (str ifn ".invoke") 6
-                                   (conj (mapv arg (range 1 (inc 20))) args) true))
-  (code! m))
 
-;; Make apply also see AFn, not just RestFn for realistic workload
-;; Always return same type from FNs!
 (comment
-  (let [xs [1 2 3] ;(vec (range 4))
+  ;;;;;;;;;;;;;;;;;;;; BENCH ;;;;;;;;;;;;;;;;;;;;;;;
+  (let [xs [1]
+        fixed [1]
         rfn (fn
-              ([x y z] z)
-              ([x y z & xs] z))
+              ([] 1)
+              ([& xs] 1))
         afn (fn
               ([] 1)
               ([x] x)
@@ -205,13 +231,28 @@
               ([x y z, a] a)
               ([x y z, a b] b)
               ([x y z, a b c] c)
-              ([x y z, a b c, d] d))]
-    ;(prn "RestFn:")
-    ;(crit/quick-bench (apply rfn xs))
-    (prn "AFn:")
-    (crit/quick-bench (apply afn xs))
-    (prn "RestFn:")
-    (crit/quick-bench (apply rfn xs))))
+              ([x y z, a b c, d] d)
+              ([x y z, a b c, d e] e)
+              ([x y z, a b c, d e f] f)
+              ([x y z, a b c, d e f, g] g)
+              ([x y z, a b c, d e f, g h] h))]
+    ;; Make apply also see other types:
+    (apply apply (concat [afn] fixed [(into () xs)]))
+    (prn "Args:" (count xs) " Fixed:" (count fixed) " -- " (clojure-version))
+    ;; Always run both, even benching just one:
+    ;; Make apply also see AFn, not just RestFn for realistic workload
+    (doseq [f [afn rfn]]
+      (prn (bases (class f)))
+      (case (count fixed)
+        0 (crit/quick-bench (apply afn xs))
+        1 (let [[x1] fixed]
+            (crit/quick-bench (apply afn x1 xs)))
+        2 (let [[x1 x2] fixed]
+            (crit/quick-bench (apply afn x1 x2 xs)))
+        3 (let [[x1 x2 x3] fixed]
+            (crit/quick-bench (apply afn x1 x2 x3 xs)))
+        4 (let [[x1 x2 x3 x4] fixed]
+            (crit/quick-bench (apply afn x1 x2 x3 x4 xs)))))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
