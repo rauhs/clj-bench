@@ -215,14 +215,11 @@
   (statement m "return throwArity(-1)")
   (code! m))
 
-
-(comment
-  ;;;;;;;;;;;;;;;;;;;; BENCH ;;;;;;;;;;;;;;;;;;;;;;;
-  (let [xs [1]
-        fixed [1]
-        rfn (fn
-              ([] 1)
-              ([& xs] 1))
+;;;;;;;;;;;;;;;;;;;; BENCH ;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;; BENCH ;;;;;;;;;;;;;;;;;;;;;;;
+(defn bench!
+  [rfn fixed xs]
+  (let [fixed (filter number? fixed)
         afn (fn
               ([] 1)
               ([x] x)
@@ -236,7 +233,7 @@
               ([x y z, a b c, d e f] f)
               ([x y z, a b c, d e f, g] g)
               ([x y z, a b c, d e f, g h] h))]
-    ;; Make apply also see other types:
+    ;; Make apply also see types other than vecs:
     (apply apply (concat [afn] fixed [(into () xs)]))
     (prn "Args:" (count xs) " Fixed:" (count fixed) " -- " (clojure-version))
     ;; Always run both, even benching just one:
@@ -244,15 +241,55 @@
     (doseq [f [afn rfn]]
       (prn (bases (class f)))
       (case (count fixed)
-        0 (crit/quick-bench (apply afn xs))
+        0 (crit/quick-bench (apply f xs))
         1 (let [[x1] fixed]
-            (crit/quick-bench (apply afn x1 xs)))
+            (crit/quick-bench (apply f x1 xs)))
         2 (let [[x1 x2] fixed]
-            (crit/quick-bench (apply afn x1 x2 xs)))
+            (crit/quick-bench (apply f x1 x2 xs)))
         3 (let [[x1 x2 x3] fixed]
-            (crit/quick-bench (apply afn x1 x2 x3 xs)))
+            (crit/quick-bench (apply f x1 x2 x3 xs)))
         4 (let [[x1 x2 x3 x4] fixed]
-            (crit/quick-bench (apply afn x1 x2 x3 x4 xs)))))))
+            (crit/quick-bench (apply f x1 x2 x3 x4 xs)))))))
+(defn r-0
+  ([] 1)
+  ([& xs] 1))
+
+(defn r-3
+  ([] 1)
+  ([x] x)
+  ([x y] x)
+  ([x y z] z)
+  ([x y z & xs] z))
+(comment
+  ;; Notation:
+  ;; [old-time-ns, new-time-ns] <-- for RestFn
+  ;; #{old-time-ns, new-time-ns} <-- for AFn
+  ;; A string means the bench is redundant and was already done above
+  
+  ;;;;;;;;;;;;;;;;; FIXED args ;;;;;;;;;;;;;;;;;;;;;;;;
+  ;; Testing RT.cons usage: (ie too many args given, MRA is very small (0))
+  ;; Giving nil:
+  (bench! r-0 [1 - - -] nil) #{? 18} [? 15]
+  (bench! r-0 [1 2 - -] nil) #{? 19} [?, 12]
+  (bench! r-0 [1 2 3 -] nil) #{? 20} [?, 9]
+  (bench! r-0 [1 2 3 4] nil) #{? 45} [? 33]
+  ;; Providing one arg in addition:
+  (bench! r-0 [1 - - -] [1]) #{?  26} [?  21]
+  (bench! r-0 [1 2 - -] [1]) #{?  25} [?, 20]
+  (bench! r-0 [1 2 3 -] [1]) #{?  25} [?, 17]
+  (bench! r-0 [1 2 3 4] [1]) #{?  40} [?  31]
+  ;; "Common" config, ie 3 args and then rest:
+  (bench! r-3 [1 - - -] [1]) #{? ""} [""]
+  (bench! r-3 [1 2 - -] [1]) #{? 21} [""]
+  (bench! r-3 [1 2 3 -] [1]) #{? 19} [""]
+  (bench! r-3 [1 2 3 4] [1]) #{? 44} [""]
+
+
+  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  ;; No fixed args
+  (bench! r-0 [] [1]) #{?  21} [? 33]
+
+  )
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
