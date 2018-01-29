@@ -203,7 +203,7 @@
           (invoke! "doInvoke" 7 (conj (mapv arg (range 1 (inc i)))
                                       (symbol (args-list* (mapv arg (range (inc i) (inc n)))
                                                           args)))))))
-  (doseq [i (range n (inc n))] ;; 21
+  (doseq [i (range n 21)] ;; 21
     (when (< n i)
       (-> m
           (statement "Object $L = $L.first()" (arg i) args)
