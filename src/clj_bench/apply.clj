@@ -239,7 +239,7 @@
     ;; Always run both, even benching just one:
     ;; Make apply also see AFn, not just RestFn for realistic workload
     (doseq [f [afn rfn]]
-      (prn (bases (class f)))
+      (prn ">>>>" (bases (class f)) "<<<<<")
       (case (count fixed)
         0 (crit/quick-bench (apply f xs))
         1 (let [[x1] fixed]
@@ -260,6 +260,13 @@
   ([x y] x)
   ([x y z] z)
   ([x y z & xs] z))
+(defn r-6
+  ([] 1)
+  ([x] x)
+  ([x y] x)
+  ([a b c, d e f] f)
+  ([a b c, d e f & xs] f))
+
 (comment
   ;; Notation:
   ;; [old-time-ns, new-time-ns] <-- for RestFn
@@ -269,25 +276,28 @@
   ;;;;;;;;;;;;;;;;; FIXED args ;;;;;;;;;;;;;;;;;;;;;;;;
   ;; Testing RT.cons usage: (ie too many args given, MRA is very small (0))
   ;; Giving nil:
-  (bench! r-0 [1 - - -] nil) #{? 18} [? 15]
-  (bench! r-0 [1 2 - -] nil) #{? 19} [?, 12]
-  (bench! r-0 [1 2 3 -] nil) #{? 20} [?, 9]
-  (bench! r-0 [1 2 3 4] nil) #{? 45} [? 33]
+  (bench! r-0 [1 - - -] nil) #{26 18} [27 15]
+  (bench! r-0 [1 2 - -] nil) #{31 19} [46, 12]
+  (bench! r-0 [1 2 3 -] nil) #{41 20} [128, 9]
+  (bench! r-0 [1 2 3 4] nil) #{58 45} [152 33]
   ;; Providing one arg in addition:
-  (bench! r-0 [1 - - -] [1]) #{?  26} [?  21]
-  (bench! r-0 [1 2 - -] [1]) #{?  25} [?, 20]
-  (bench! r-0 [1 2 3 -] [1]) #{?  25} [?, 17]
-  (bench! r-0 [1 2 3 4] [1]) #{?  40} [?  31]
+  (bench! r-0 [1 - - -] [1]) #{79  26} [104  21]
+  (bench! r-0 [1 2 - -] [1]) #{78  25} [173, 20]
+  (bench! r-0 [1 2 3 -] [1]) #{84  25} [250, 17]
+  (bench! r-0 [1 2 3 4] [1]) #{67  40} [183  31]
   ;; "Common" config, ie 3 args and then rest:
-  (bench! r-3 [1 - - -] [1]) #{? ""} [""]
-  (bench! r-3 [1 2 - -] [1]) #{? 21} [""]
-  (bench! r-3 [1 2 3 -] [1]) #{? 19} [""]
-  (bench! r-3 [1 2 3 4] [1]) #{? 44} [""]
+  (bench! r-3 [1 - - -] [1]) #{""} [""]
+  (bench! r-3 [1 2 - -] [1]) #{237 21} [""]
+  (bench! r-3 [1 2 3 -] [1]) #{172 19} [""]
+  (bench! r-3 [1 2 3 4] [1]) #{148 44} [""]
 
+
+  ;;
+  (bench! r-6 [1 2 3] [4 5 6]) #{310 30} [209 38]
 
   ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
   ;; No fixed args
-  (bench! r-0 [] [1]) #{?  21} [? 33]
+  (bench! r-0 [] [1]) #{28  21} [32 33]
 
   )
 
