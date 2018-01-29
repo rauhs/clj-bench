@@ -269,8 +269,8 @@
 
 (comment
   ;; Notation:
-  ;; [old-time-ns, new-time-ns] <-- for RestFn
-  ;; #{old-time-ns, new-time-ns} <-- for AFn
+  ;; [old-time-ns, new-time-ns] <-- for AFn
+  ;; #{old-time-ns, new-time-ns} <-- for RestFn
   ;; A string means the bench is redundant and was already done above
   
   ;;;;;;;;;;;;;;;;; FIXED args ;;;;;;;;;;;;;;;;;;;;;;;;
