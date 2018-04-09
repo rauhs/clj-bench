@@ -301,6 +301,30 @@
 
   )
 
+(comment
+  ;; Real world perf:
+
+  (let [xs {:a 2}
+        upd-path [:a]]
+    ;; 161ns , 130ns
+    (crit/quick-bench (update-in xs upd-path inc)))
+
+  (let [xs {:a []}
+        upd-path [:a]]
+    ;;  280ns, 212ns
+    (crit/quick-bench (update-in xs upd-path conj 1)))
+
+  (let [xs (vec (range 2))]
+    ;; 450ns, 335ns
+    (crit/quick-bench (mapcat vector xs)))
+
+
+  (let [f (with-meta (fn [x y] (+ x y)) {0 1})]
+    ;; 65ns, 45ns
+    (crit/quick-bench (f 1 2)))
+
+  )
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 (comment
